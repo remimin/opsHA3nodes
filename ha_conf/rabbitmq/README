@@ -1,0 +1,33 @@
+systemctl start rabbitmq-server
+systemctl enable rabbitmq-server
+rabbitmq-plugins enable rabbitmq_management
+systemctl restart rabbitmq-server
+
+
+scp /var/lib/rabbitmq/.erlang.cookie root@ctrl02:/var/lib/rabbitmq/
+scp /var/lib/rabbitmq/.erlang.cookie root@ctrl03:/var/lib/rabbitmq/
+
+# On ctrl02 ctrl03
+systemctl restart rabbitmq-server
+rabbitmqctl stop_app
+rabbitmqctl join_cluster rabbit@ctrl01
+rabbitmqctl start_app
+rabbitmqctl cluster_status
+
+
+rabbitmqctl list_users
+
+management URL: http://ctrl01:15672/
+
+# Set HA policy
+rabbitmqctl set_policy HA '^(?!amq.).*' '{"ha-mode":"all"}'
+
+# Openstack Service Config
+transport_url = rabbit://user:password@ctrl01,user:password@ctrl02,user:password@ctrl03
+[oslo_messaging_rabbit]
+amqp_durable_queues=true
+rabbit_ha_queues = true
+
+# Trouble Shouting
+Delete all queues
+delete 'openstack' exchange

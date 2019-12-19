@@ -1,0 +1,68 @@
+# Install packages
+yum -y install pacemaker corosync pcsd resource-agents
+systemctl enable pcsd
+systemctl start pcsd
+
+# Generate hacluster password
+echo 'pacepass' | passwd --stdin hacluster
+
+# Create pacemaker cluster
+pcs cluster auth ctrl01 ctrl02 ctrl03 -u hacluster -p pacepass
+pcs cluster setup  --name openstack-cluster-01 ctrl01 ctrl02 ctrl03
+
+pcs cluster start --all
+pcs cluster enable --all
+
+# Confirm Cluster Status
+pcs cluster status
+crm -1
+pcs status corosync
+crm_verify -L -V
+
+
+# Setting Properties
+pcs property set pe-warn-series-max=1000 \
+pe-input-series-max=1000 \
+pe-error-series-max=1000
+
+pcs property set stonith-enabled=false
+pcs property set cluster-recheck-interval=3
+pcs property list --all
+
+# Get resource list
+pcs resource
+
+# Create vip resource
+pcs resource create vip ocf:heartbeat:IPaddr2 ip=172.20.3.99 cidr_netmask=24 op monitor interval=30s
+
+# Create haproxy resource
+pcs resource create lb-haproxy systemd:haproxy --clone
+pcs constraint order start vip then lb-haproxy-clone kind=Optional
+# [Option] constraint haproxy and vip always on the same node
+pcs constraint colocation add lb-haproxy-clone with vip
+
+
+# httpd
+pcs resource create lb-httpd systemd:httpd --clone
+
+
+# cinder
+pcs resource create openstack-cinder-api systemd:openstack-cinder-api --clone interleave=true
+pcs resource create openstack-cinder-scheduler systemd:openstack-cinder-scheduler --clone interleave=true
+pcs resource create openstack-cinder-volume systemd:openstack-cinder-volume
+pcs constraint order start openstack-cinder-api-clone then openstack-cinder-scheduler-clone
+pcs constraint colocation add openstack-cinder-scheduler-clone with openstack-cinder-api-clone
+pcs constraint order start openstack-cinder-scheduler-clone then openstack-cinder-volume
+pcs constraint colocation add openstack-cinder-volume with openstack-cinder-scheduler-clone
+
+# neutron-server
+pcs resource create neutron-server systemd:neutron-server --clone interleave=true
+
+# nova
+pcs resource create openstack-nova-api systemd:openstack-nova-api --clone interleave=true
+pcs resource create openstack-nova-conductor systemd:openstack-nova-conductor --clone interleave=true
+pcs resource create openstack-nova-scheduler systemd:openstack-nova-scheduler --clone interleave=true
+pcs resource create openstack-nova-novncproxy systemd:openstack-nova-novncproxy --clone interleave=true
+
+# miner
+pcs resource create miner-api systemd:miner-api --clone interleave=true
